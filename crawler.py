@@ -5,11 +5,12 @@ from bs4 import BeautifulSoup
 import time 
 from concurrent.futures import ThreadPoolExecutor
 import threading
-
+import numpy as np
 # TODO store links in index with frequency of keywords
 # plot the # of pages crawled by number of keywords
 # What if I created a graph visualization of the web crawler
-
+import networkx as nx
+from pyvis.network import Network
 
 domain = "https://cc.gatech.edu/"
 
@@ -36,7 +37,8 @@ class WebCrawler:
         self.lock = threading.Lock()
         self.thread_queue = 0
         self.start_time = time.time()
-        
+        self.url_edges = np.array([["",""]])
+        print(self.url_edges)
 
     def filter_keywords(self, word):
         if word in self.keyword_blacklist:
@@ -76,7 +78,12 @@ class WebCrawler:
                             self.index[word] = set()
                         self.index[word].add((link[-1], keywords[word]))
                     
-                    for new_link in soup.find_all('a'):                     
+                    for new_link in soup.find_all('a'):     
+                        #self.url_edges.append((link[-1],new_link))
+                        
+                        self.url_edges = np.concatenate(self.url_edges, [[link[-1], new_link.get('href')]])      
+                        
+                                  
                         if new_link.get('href') and new_link.get('href') not in self.visited_links and link[-1]+new_link.get('href')[1:] not in self.visited_links:
                             
                             
@@ -193,6 +200,11 @@ class WebCrawler:
             # print(f"adding keyword: {word}")
 
         for new_link in soup.find_all('a'):
+            
+            if new_link.get('href'):
+            
+               self.url_edges = np.concatenate((self.url_edges, [[link[-1], new_link.get('href')]]))
+             
             if new_link.get('href') and new_link.get('href') not in self.visited_links and link[-1] + new_link.get('href')[1:] not in self.visited_links:
                 if new_link.get('href')[0] == '/' and link[0] + new_link.get('href')[1:] not in self.to_visit_set:
                     with self.lock:
@@ -214,7 +226,7 @@ class WebCrawler:
         thread_count = 0
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             
-            while self.to_visit_links and self.successes < 1000 and self.thread_queue < 1000:
+            while self.to_visit_links and self.successes < 100 and self.thread_queue < 100:
                 thread_count += 1
                 self.thread_queue += 1
                 link = (self.to_visit_links.popleft(), thread_count, debug)
@@ -223,15 +235,22 @@ class WebCrawler:
                 while len(self.to_visit_links) == 0 and count  < 10:
                     count += 1
                     time.sleep(3)
-                
-                
+        print(np.shape(self.url_edges))
         
         print(f"successes: {self.successes}")
         print(f"to visit: {len(self.to_visit_links)}")
         print(f"visited: {len(self.visited_links)}")
         print("--- %s seconds ---" % (time.time() - start_time))
-       
-       
+        
+        with open("edges.csv", "w") as f:
+            for edge in self.url_edges:
+                f.write(edge[0] + "," + edge[1] + "\n")
+        
+        """ G = nx.from_numpy_array(self.url_edges)
+        net = Network(notebook=True)
+        net.from_nx(G)
+        net.show("graph.html")
+        """
          
 if __name__ == "__main__":
     print("test")
