@@ -12,7 +12,8 @@ if __name__ == '__main__':
     
     crawler.set_seed(seed)
     # Start the web crawler
-    crawler.start()
+    #crawler.start()
+    crawler.start_multithreaded(num_threads=4)
     crawl_plot.plot_graph("Web Crawler", "Links Visited", "Links to Visit", crawler.graph_stats, "graph.png")
     crawl_plot.plot_graph("Web Crawler", "Time (seconds)", "Links Visited", crawler.time_graph, "time_graph.png")
     crawl_plot.plot_bar_graph("Web Crawler", "Keyword", "Frequency", crawler.keywords.most_common(30), "keywords.png")

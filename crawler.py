@@ -3,12 +3,14 @@ from collections import deque, Counter
 import requests
 from bs4 import BeautifulSoup
 import time 
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
+# TODO store links in index with frequency of keywords
+# plot the # of pages crawled by number of keywords
+# What if I created a graph visualization of the web crawler
 
 
-# make sure to add blacklist of links to not visit such as .pdfs .jpgs etc
-# find robots.txt and blacklist those links
-# For now just creating a simple webcrawler that 
-# Define rules for crawling such as max depth, max pages, etc
 domain = "https://cc.gatech.edu/"
 
 
@@ -30,20 +32,20 @@ class WebCrawler:
                                    }
         self.keywords = Counter()
         self.index = dict()
-
+        self.successes = 0
+        self.lock = threading.Lock()
+        self.thread_queue = 0
+        self.start_time = time.time()
         
+
     def filter_keywords(self, word):
         if word in self.keyword_blacklist:
             return False
         return True
         
-
-    
     def set_seed(self, url: str):
         # link will be tuple of (root, parent, current)
         self.to_visit_links.append((url, "",url))
-    
-    
     
     def start(self):
         print(f"Starting the web crawler with seed {self.to_visit_links[0]}")
@@ -51,6 +53,7 @@ class WebCrawler:
         count = 0
         successes = 1
         fileCount = 0
+        
         while self.to_visit_links and successes < 100:
             link = self.to_visit_links.popleft()
             if link[-1] in self.visited_links:
@@ -67,15 +70,13 @@ class WebCrawler:
                     keywords = self.parse_keywords(soup)
                     self.keywords += keywords
                     
+                    
                     for word in keywords:
                         if word not in self.index:
                             self.index[word] = set()
-                        self.index[word].add(link[-1])
+                        self.index[word].add((link[-1], keywords[word]))
                     
-                    #print(soup.prettify())
-                    for new_link in soup.find_all('a'):
-                        #print(new_link.get('href'))
-                        
+                    for new_link in soup.find_all('a'):                     
                         if new_link.get('href') and new_link.get('href') not in self.visited_links and link[-1]+new_link.get('href')[1:] not in self.visited_links:
                             
                             
@@ -83,14 +84,12 @@ class WebCrawler:
                             if new_link.get('href')[0] == '/' and link[0] + new_link.get('href')[1:] not in self.to_visit_set:
                                 self.to_visit_links.append((link[0], link[-1], link[0] + new_link.get('href')[1:]))
                                 self.to_visit_set.add(link[0] + new_link.get('href')[1:])
-                                #self.visited_links.add(link + new_link.get('href')[1:])
+
                             else:
                                 if new_link.get('href')[:len(domain)] == domain and new_link.get('href') not in self.to_visit_set:
                                     self.to_visit_links.append((link[0], link[-1], new_link.get('href')))
                                     self.to_visit_set.add(new_link.get('href'))
-                                    #self.visited_links.add(new_link.get('href'))
-                                # self.to_visit_links.append(new_link.get('href'))
-                                # self.visited_links.add(new_link.get('href'))
+
                     if len(self.to_visit_links) > 500*fileCount:
                         fileCount += 1
                         with open("tempDir/file" + str(fileCount) + ".txt", "w") as f:
@@ -117,17 +116,15 @@ class WebCrawler:
                 print(f"time elapsed: {time.time() - start_time}")
                 print(f"unique links to visit: {len(self.to_visit_set) - len(self.visited_links)}")
                 print("---------------------------------\n\n\n")
-        print(f"successes: {successes}")
-        print(f"to visit: {len(self.to_visit_links)}")
-        print(f"visited: {len(self.visited_links)}")
-
         with open("visited.txt", "w") as f:
             f.write(str(self.visited_links))
             
         with open("index.txt", "w") as f:
             for word in self.index:
                 f.write(word + " " + str(self.index[word]) + "\n")    
-        
+        print(f"successes: {successes}")
+        print(f"to visit: {len(self.to_visit_links)}")
+        print(f"visited: {len(self.visited_links)}")
         print("--- %s seconds ---" % (time.time() - start_time))
         #print(self.visited_links)
         print('\n\n\n')
@@ -135,9 +132,106 @@ class WebCrawler:
             
     def parse_keywords(self, page: BeautifulSoup):
         # Go through all p tags, li tags, and ul tags and count each word
+        
+        page = page.find('div', role="main")
+        
         filtered = filter(self.filter_keywords, page.get_text().lower().split())
         return Counter(filtered)
         
+    def crawl_link(self, link):
+        debug = link[-1]
+        thread_count = link[1]
+        link = link[0]
+        if thread_count % 10 == 0:
             
+            self.graph_stats.append((self.successes, len(self.to_visit_links)))
+            self.time_graph.append((time.time() - self.start_time, len(self.visited_links)))
+        
+        if debug:
+            print(f"crawling: {link[-1]}")
+        if link[-1] in self.visited_links:
+            return
+        self.visited_links.add(link[-1])
+
+        if link[-1][-4:] == ".pdf":
+            return
+
+        try:
+            page = requests.get(link[-1])
+
+            if page.status_code == 200:
+                self.process_page(link, page, debug)
+                
+                with self.lock:
+                    self.successes += 1
+
+            else:
+                if debug:
+                    print(f"error with link: {link} with status code {page.status_code}")
+                with self.lock:
+                    self.error_links.add(link[-1])
+        
+        except Exception as e:
+            print(e)
+            print(link)
+        if debug:
+            print(f"finished crawling: {link[-1]}, length of to_visit_links: {len(self.to_visit_links)}")
+       
+    def process_page(self, link, page, debug):
+       
+        soup = BeautifulSoup(page.content, 'html.parser')
+        keywords = self.parse_keywords(soup)
+        with self.lock:
+            self.keywords += keywords
+        if debug:
+            print(f"processing page for link: {link[-1]}")
+        for word in keywords:
+            with self.lock:
+                if word not in self.index:
+                    self.index[word] = set()
+                self.index[word].add(link[-1])
+            # print(f"adding keyword: {word}")
+
+        for new_link in soup.find_all('a'):
+            if new_link.get('href') and new_link.get('href') not in self.visited_links and link[-1] + new_link.get('href')[1:] not in self.visited_links:
+                if new_link.get('href')[0] == '/' and link[0] + new_link.get('href')[1:] not in self.to_visit_set:
+                    with self.lock:
+                        self.to_visit_links.append((link[0], link[-1], link[0] + new_link.get('href')[1:]))
+                        self.to_visit_set.add(link[0] + new_link.get('href')[1:])
+                else:
+                    if new_link.get('href')[:len(domain)] == domain and new_link.get('href') not in self.to_visit_set:
+                        with self.lock:
+                            self.to_visit_links.append((link[0], link[-1], new_link.get('href')))
+                            self.to_visit_set.add(new_link.get('href'))
+
+                
+        
+        return
+    
+    def start_multithreaded(self, num_threads=4, debug = False):
+        print(f"Starting the multithreaded web crawler with seed {self.to_visit_links[0]}")
+        start_time = time.time()
+        thread_count = 0
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            
+            while self.to_visit_links and self.successes < 1000 and self.thread_queue < 1000:
+                thread_count += 1
+                self.thread_queue += 1
+                link = (self.to_visit_links.popleft(), thread_count, debug)
+                executor.submit(self.crawl_link, link)
+                count = 0 
+                while len(self.to_visit_links) == 0 and count  < 10:
+                    count += 1
+                    time.sleep(3)
+                
+                
+        
+        print(f"successes: {self.successes}")
+        print(f"to visit: {len(self.to_visit_links)}")
+        print(f"visited: {len(self.visited_links)}")
+        print("--- %s seconds ---" % (time.time() - start_time))
+       
+       
+         
 if __name__ == "__main__":
     print("test")
