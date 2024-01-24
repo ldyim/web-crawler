@@ -20,9 +20,7 @@ class WebCrawler:
         self.visited_links = set()
         self.to_visit_links = deque()
         self.error_links = set()
-        self.graph_stats = []
         self.to_visit_set = set()
-        self.time_graph = []
         self.keyword_blacklist = {'us','we','our','of', 'a', 'the', 'and', 'to', 'in', 'is', 'for', 'on', 'that', 'with', 'as', 'by', 'this', 'are', 'from',
                                    'at', 'be', 'it', 'an', 'or', 'if', 'will', 'its', 'has', 'have', 'can', 'not', 'which', 'but', 'also', 'than', 'more', 
                                    'their', 'they', 'was', 'were', 'been', 'these', 'such', 'other', 'about', 'would', 'there', 'been', 'some', 'all', 'out', 
@@ -38,7 +36,23 @@ class WebCrawler:
         self.thread_queue = 0
         self.start_time = time.time()
         self.url_edges = np.array([["",""]])
-        print(self.url_edges)
+        self.graph_stats = []
+        self.time_graph = []
+        self.keywords_graph = []
+        self.multi_graph_stats = []
+        self.multi_time_graph = []
+        self.multi_keywords_graph = []
+
+
+    def reset(self):
+        self.visited_links = set()
+        self.to_visit_links = deque()
+        self.error_links = set()
+        self.to_visit_set = set()
+        self.keywords = Counter()
+        self.index = dict()
+        self.successes = 0
+        self.start_time = time.time()
 
     def filter_keywords(self, word):
         if word in self.keyword_blacklist:
@@ -56,7 +70,7 @@ class WebCrawler:
         successes = 1
         fileCount = 0
         
-        while self.to_visit_links and successes < 100:
+        while self.to_visit_links and successes < 1000:
             link = self.to_visit_links.popleft()
             if link[-1] in self.visited_links:
                 continue
@@ -97,10 +111,10 @@ class WebCrawler:
                                     self.to_visit_links.append((link[0], link[-1], new_link.get('href')))
                                     self.to_visit_set.add(new_link.get('href'))
 
-                    if len(self.to_visit_links) > 500*fileCount:
-                        fileCount += 1
-                        with open("tempDir/file" + str(fileCount) + ".txt", "w") as f:
-                            f.write(str(list(self.to_visit_links)[100*(fileCount-1):]))
+                    # if len(self.to_visit_links) > 500*fileCount:
+                    #     fileCount += 1
+                    #     with open("tempDir/file" + str(fileCount) + ".txt", "w") as f:
+                    #         f.write(str(list(self.to_visit_links)[100*(fileCount-1):]))
                 #print(self.to_visit_links)
                 else:
                     print(f"error with link: {link[-1]} with status code {page.status_code}")
@@ -115,6 +129,7 @@ class WebCrawler:
             if len(self.visited_links) % 5 == 0:
                 self.graph_stats.append((successes, len(self.to_visit_links)))
                 self.time_graph.append((time.time() - start_time, len(self.visited_links)))
+                self.keywords_graph.append((time.time() - start_time, len(self.keywords)))
             
             if count % 100 == 0:
                 print(f"successes: {successes}")
@@ -149,11 +164,15 @@ class WebCrawler:
         debug = link[-1]
         thread_count = link[1]
         link = link[0]
-        if thread_count % 10 == 0:
+        if thread_count % 5 == 0:
             
-            self.graph_stats.append((self.successes, len(self.to_visit_links)))
-            self.time_graph.append((time.time() - self.start_time, len(self.visited_links)))
-        
+            self.multi_graph_stats.append((self.successes, len(self.to_visit_links)))
+            self.multi_time_graph.append((time.time() - self.start_time, len(self.visited_links)))
+            self.multi_keywords_graph.append((time.time() - self.start_time, len(self.keywords)))
+        if thread_count % 100 == 0:
+            print(f"thread: {thread_count}")
+            print(f"successes: {self.successes}")
+
         if debug:
             print(f"crawling: {link[-1]}")
         if link[-1] in self.visited_links:
@@ -201,9 +220,10 @@ class WebCrawler:
 
         for new_link in soup.find_all('a'):
             
-            if new_link.get('href'):
+            # graph stuff, probably not needed 
+            # if new_link.get('href'):
             
-               self.url_edges = np.concatenate((self.url_edges, [[link[-1], new_link.get('href')]]))
+            #    self.url_edges = np.concatenate((self.url_edges, [[link[-1], new_link.get('href')]]))
              
             if new_link.get('href') and new_link.get('href') not in self.visited_links and link[-1] + new_link.get('href')[1:] not in self.visited_links:
                 if new_link.get('href')[0] == '/' and link[0] + new_link.get('href')[1:] not in self.to_visit_set:
@@ -226,7 +246,7 @@ class WebCrawler:
         thread_count = 0
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             
-            while self.to_visit_links and self.successes < 100 and self.thread_queue < 100:
+            while self.to_visit_links and self.successes < 1000 and self.thread_queue < 1000:
                 thread_count += 1
                 self.thread_queue += 1
                 link = (self.to_visit_links.popleft(), thread_count, debug)
@@ -235,16 +255,16 @@ class WebCrawler:
                 while len(self.to_visit_links) == 0 and count  < 10:
                     count += 1
                     time.sleep(3)
-        print(np.shape(self.url_edges))
+        # print(np.shape(self.url_edges))
         
         print(f"successes: {self.successes}")
         print(f"to visit: {len(self.to_visit_links)}")
         print(f"visited: {len(self.visited_links)}")
         print("--- %s seconds ---" % (time.time() - start_time))
         
-        with open("edges.csv", "w") as f:
-            for edge in self.url_edges:
-                f.write(edge[0] + "," + edge[1] + "\n")
+        # with open("edges.csv", "w") as f:
+        #     for edge in self.url_edges:
+        #         f.write(edge[0] + "," + edge[1] + "\n")
         
         """ G = nx.from_numpy_array(self.url_edges)
         net = Network(notebook=True)

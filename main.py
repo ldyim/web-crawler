@@ -8,12 +8,18 @@ if __name__ == '__main__':
     # Create a new instance of the web crawler
     seed = "https://cc.gatech.edu/"
     
+
+    # Running the multithreading crawler
     crawler = WebCrawler()
-    
     crawler.set_seed(seed)
     # Start the web crawler
     #crawler.start()
     crawler.start_multithreaded(num_threads=4)
+
+    
+
+
+
     crawl_plot.plot_graph("Web Crawler", "Links Visited", "Links to Visit", crawler.graph_stats, "graph.png")
     crawl_plot.plot_graph("Web Crawler", "Time (seconds)", "Links Visited", crawler.time_graph, "time_graph.png")
     crawl_plot.plot_bar_graph("Web Crawler", "Keyword", "Frequency", crawler.keywords.most_common(30), "keywords.png")
