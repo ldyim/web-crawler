@@ -1,8 +1,0 @@
-Do inverted indexing mapping keywords to page they appear on
-
-Maybe a dynamo db instance (keyword -> url and number of entries?)
-pass html page to a amazon lambda to extract keywords and put in the db
-
-AWS free tier has dynamodb up to 25 Gb and lambda up to 1 million requests so this would fit 
-
-
