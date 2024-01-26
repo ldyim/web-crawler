@@ -42,6 +42,7 @@ class WebCrawler:
         self.multi_graph_stats = []
         self.multi_time_graph = []
         self.multi_keywords_graph = []
+        self.max_successes = 2000
 
 
     def reset(self):
@@ -69,9 +70,13 @@ class WebCrawler:
         count = 0
         successes = 1
         fileCount = 0
+        self.graph_stats.append((0, 0))
+        self.time_graph.append((0, 0))
+        self.keywords_graph.append((0, 0))
         
-        while self.to_visit_links and successes < 1000:
+        while self.to_visit_links and successes < self.max_successes:
             link = self.to_visit_links.popleft()
+            
             if link[-1] in self.visited_links:
                 continue
             self.visited_links.add(link[-1])
@@ -86,7 +91,6 @@ class WebCrawler:
                     keywords = self.parse_keywords(soup)
                     self.keywords += keywords
                     
-                    
                     for word in keywords:
                         if word not in self.index:
                             self.index[word] = set()
@@ -94,8 +98,8 @@ class WebCrawler:
                     
                     for new_link in soup.find_all('a'):     
                         #self.url_edges.append((link[-1],new_link))
-                        
-                        self.url_edges = np.concatenate(self.url_edges, [[link[-1], new_link.get('href')]])      
+                        # not needed for now
+                        #self.url_edges = np.concatenate(self.url_edges, [[link[-1], new_link.get('href')]])      
                         
                                   
                         if new_link.get('href') and new_link.get('href') not in self.visited_links and link[-1]+new_link.get('href')[1:] not in self.visited_links:
@@ -119,9 +123,10 @@ class WebCrawler:
                 else:
                     print(f"error with link: {link[-1]} with status code {page.status_code}")
                     self.error_links.add(link[-1])
+
                     
             except Exception as e:
-                print(Exception)
+                print(e)
                 print(link)
                 pass
             
@@ -143,7 +148,11 @@ class WebCrawler:
             
         with open("index.txt", "w") as f:
             for word in self.index:
-                f.write(word + " " + str(self.index[word]) + "\n")    
+                try:
+                    f.write(word + " " + str(self.index[word]) + "\n")   
+                except:
+                    print(word)
+                    continue 
         print(f"successes: {successes}")
         print(f"to visit: {len(self.to_visit_links)}")
         print(f"visited: {len(self.visited_links)}")
@@ -161,6 +170,8 @@ class WebCrawler:
         return Counter(filtered)
         
     def crawl_link(self, link):
+        if self.successes >= self.max_successes:
+            return 
         debug = link[-1]
         thread_count = link[1]
         link = link[0]
@@ -244,15 +255,26 @@ class WebCrawler:
         print(f"Starting the multithreaded web crawler with seed {self.to_visit_links[0]}")
         start_time = time.time()
         thread_count = 0
+        self.multi_graph_stats.append((0, 0))
+        self.multi_time_graph.append((0, 0))
+        self.multi_keywords_graph.append((0, 0))
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             
-            while self.to_visit_links and self.successes < 1000 and self.thread_queue < 1000:
+            while self.to_visit_links and self.successes < self.max_successes and self.thread_queue < self.max_successes + 20000:
                 thread_count += 1
                 self.thread_queue += 1
                 link = (self.to_visit_links.popleft(), thread_count, debug)
                 executor.submit(self.crawl_link, link)
                 count = 0 
-                while len(self.to_visit_links) == 0 and count  < 10:
+                if thread_count % 100 == 0:
+                    print(f"thread: {thread_count}")
+                    print(f"successes: {self.successes}")
+                if self.thread_queue > self.successes + 50:
+                    time.sleep(5)
+                if self.successes > 1000:
+                    self.thread_queue = self.successes
+                    
+                while len(self.to_visit_links) == 0 and count < 100:
                     count += 1
                     time.sleep(3)
         # print(np.shape(self.url_edges))
@@ -272,5 +294,5 @@ class WebCrawler:
         net.show("graph.html")
         """
          
-if __name__ == "__main__":
+if __name__ == "__main__":#
     print("test")
